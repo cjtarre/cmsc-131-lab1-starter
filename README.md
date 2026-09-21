@@ -96,13 +96,18 @@ Keep each part short. Update it when the plan changes.
 
 ### Problem analysis
 
-What the tool must read, what it must write, and which field is the hard
-one. State the header layout in your own words.
+The tool works with the 20-byte base IPv4 header. The decode path reads the header in network byte order and extracts its 13 fields into the C structure, while the encode path builds the 20-byte header from the structure values.
+
+The main challenges are handling multi-byte fields in big-endian order, extracting the Version and IHL fields that share the first byte, and separating the Flags and Fragment Offset fields that share bytes 6 and 7. The Internet checksum also requires processing the header as 16-bit big-endian words and folding carries before taking the one's complement.
 
 ### Solution architecture
 
-How the three routines split the work. Which registers each routine uses,
-and how the struct offsets in `driver.c` map to the fields.
+The project is divided into three assembly subsystems. `decode.asm` reads the 20-byte IPv4 header and stores its 13 fields in the `ipv4_fields` structure. `encode.asm` performs the reverse operation by reading the structure and constructing the 20-byte header in network byte order. `checksum.asm` computes the IPv4 one's complement checksum and is used by the decode and encode paths.
+
+The routines follow the cdecl calling convention. For `decode_header`, the header pointer is at `[ebp+8]` and the output structure pointer is at `[ebp+12]`. For `encode_header`, the input structure pointer is at `[ebp+8]` and the header pointer is at `[ebp+12]`. For `ip_checksum`, the header pointer is at `[ebp+8]` and the length is at `[ebp+12]`.
+
+The `ipv4_fields` structure stores its integer fields at offsets 0 through 40, the source address at offsets 44 through 47, and the destination address at offsets 48 through 51. The implementation must preserve `ebx`, `esi`, `edi`, and `ebp` according to the cdecl calling convention. Multi-byte IPv4 fields will be read and written byte-by-byte so that they remain in network byte order.
+
 
 ### Timeline
 
@@ -111,10 +116,10 @@ who owns it.
 
 | Week | Goal | Owner |
 |---|---|---|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | Defense | |
+| 1 | Repository setup, complete design notes, assign subsystem ownership, and implement the Version/IHL prototype |  |
+| 2 | Complete the decode path, checksum routine, and encoder; integrate the core features |  |
+| 3 | Complete testing, resolve quirks and issues, and finalize the implementation |  |
+| 4 | Defense | All Members |
 
 ## Subsystem Ownership
 
