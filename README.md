@@ -100,6 +100,10 @@ The tool works with the 20-byte base IPv4 header. The decode path reads the head
 
 The main challenges are handling multi-byte fields in big-endian order, extracting the Version and IHL fields that share the first byte, and separating the Flags and Fragment Offset fields that share bytes 6 and 7. The Internet checksum also requires processing the header as 16-bit big-endian words and folding carries before taking the one's complement.
 
+### Header layout
+
+The header is always exactly 20 bytes, with each byte (or part of a byte) holding a specific field. Byte 0 splits into Version (top 4 bits, always 4) and IHL (bottom 4 bits, always 5, meaning 20 bytes). Byte 1 splits into DSCP (top 6 bits) and ECN (bottom 2 bits). Bytes 2-3 hold Total Length as a 16-bit big-endian value. Bytes 4-5 hold Identification, also 16-bit big-endian. Bytes 6-7 hold Flags (top 3 bits of byte 6) and Fragment Offset (the remaining 13 bits, spilling across both bytes). Byte 8 is TTL, byte 9 is Protocol, bytes 10-11 hold the Header Checksum, bytes 12-15 hold the Source Address, and bytes 16-19 hold the Destination Address.
+
 ### Solution architecture
 
 The project is divided into three assembly subsystems. `decode.asm` reads the 20-byte IPv4 header and stores its 13 fields in the `ipv4_fields` structure. `encode.asm` performs the reverse operation by reading the structure and constructing the 20-byte header in network byte order. `checksum.asm` computes the IPv4 one's complement checksum and is used by the decode and encode paths.
