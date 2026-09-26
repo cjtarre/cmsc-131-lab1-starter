@@ -133,7 +133,7 @@ share one. The commit history must agree with this table.
 
 | Subsystem | Owner |
 |---|---|
-| Decode path (`decode.asm`) | |
+| Decode path (`decode.asm`) | Trisha Mae A. Hechenagocia |
 | Encode path (`encode.asm`) | Aleighia Keith L. Reyes |
 | Checksum and tests (`checksum.asm`, `tests/`) | |
 
