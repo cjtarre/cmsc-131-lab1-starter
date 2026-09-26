@@ -130,7 +130,7 @@ share one. The commit history must agree with this table.
 | Subsystem | Owner |
 |---|---|
 | Decode path (`decode.asm`) | |
-| Encode path (`encode.asm`) | |
+| Encode path (`encode.asm`) | Aleighia Keith L. Reyes |
 | Checksum and tests (`checksum.asm`, `tests/`) | |
 
 ## Quirks and Issues
