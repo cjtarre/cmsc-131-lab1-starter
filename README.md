@@ -135,7 +135,7 @@ share one. The commit history must agree with this table.
 |---|---|
 | Decode path (`decode.asm`) | Trisha Mae A. Hechenagocia |
 | Encode path (`encode.asm`) | Aleighia Keith L. Reyes |
-| Checksum and tests (`checksum.asm`, `tests/`) | |
+| Checksum and tests (`checksum.asm`, `tests/`) | Ma. Christie Jude L. Tarre |
 
 ## Quirks and Issues
 
