@@ -62,24 +62,23 @@ _decode_header:
         ; the struct, and driver.c does the rest.
         ;
 
+        ;load args
         mov     esi, [ebp+8] ; points to ipv4 header
         mov     edi, [ebp+12] ; points to output 
 
         ;extract byte 0
-        mov     al, [esi]   ; al = byte 0
+        mov     al, [esi]         ;al = byte 0
 
         ; get version
-        movzx   eax, al ; copy al to eax then zero extend
-        ;shift right to remove the IHL and get only the version
-        shr     eax, 4
-        ;store to output
-        mov     [edi+ 0], eax
+        movzx   eax, al           ;copy al to eax then zero extend
+        shr     eax, 4            ;shift right to remove the IHL and get only the version
+        mov     [edi+0], eax      ;store to output
 
         ; get IHL
         mov     al, [esi]  
-        movzx eax, al           ; copy al to eax then zero extend
-        and eax, 0x0F           ; mask and get only the 4 lower bits
-        mov [edi + 4], eax      ; store to output
+        movzx   eax, al           ;copy al to eax then zero extend
+        and     eax, 0x0F         ;mask and get only the 4 lower bits
+        mov     [edi+4], eax      ;store to output
 
 
         popa
