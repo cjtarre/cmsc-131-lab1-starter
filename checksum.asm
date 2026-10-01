@@ -10,7 +10,7 @@
 segment .text
         global  _ip_checksum
 _ip_checksum:
-        enter   0,0
+        enter   4,0
         pusha
 
         ; ESI = pointer to header
@@ -56,6 +56,13 @@ _ip_checksum:
         not     ax
         movzx   eax, ax
 
+        ; Save result because popa restores EAX
+        mov     [ebp-4], eax
+
         popa
+
+        ; Restore checksum as return value
+        mov     eax, [ebp-4]
+
         leave
         ret
