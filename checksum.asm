@@ -40,7 +40,22 @@ _ip_checksum:
         sub     ecx, 2
         jnz     .loop
 
+.fold:
+        ; Add the high 16 bits to the low 16 bits
+        mov     eax, edx
+        shr     eax, 16
+        and     edx, 0xFFFF
+        add     edx, eax
+
+        ; A second fold may be necessary
+        cmp     edx, 0xFFFF
+        ja      .fold
+
+        ; One's complement of the 16-bit result
+        mov     eax, edx
+        not     ax
+        movzx   eax, ax
+
         popa
-        mov     eax, 0
         leave
         ret
