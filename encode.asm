@@ -41,6 +41,8 @@
   section .note.GNU-stack noalloc noexec nowrite progbits
 %endif
 
+; Byte 0 is always 0x45: version 4 in the top 4 bits, IHL 5 in the bottom 4 bits.
+VERSION_IHL_BYTE equ 0x45
 extern _ip_checksum
 
 segment .text
@@ -49,22 +51,95 @@ _encode_header:
         enter   0,0
         pusha
 
-        ;
-        ; TODO: build the header from the struct.
-        ;
-        ; This is the reverse of decode. Mask each field to its width,
-        ; shift it up to where it lives, or the pieces of a shared byte
-        ; together, then store the byte. The fields that do not straddle
-        ; anything are one store each.
-        ;
-        ; The checksum comes last, after every other byte is written. Write
-        ; bytes 10-11 as zero, call ip_checksum with the header and 20, and
-        ; store its result (in ax) into the field big-endian. Computing it
-        ; before the rest of the header is in place sums whatever garbage
-        ; was in the buffer. ip_checksum preserves ebx, esi, edi, and ebp,
-        ; so a pointer kept in one of those survives the call. eax, ecx, and
-        ; edx do not.
-        ;
+        mov     edi, [ebp+12]               ; edi = the 20-byte buffer
+        mov     esi, [ebp+8]                ; esi = the struct
+
+        ; byte 0 = version + IHL (fixed, see VERSION_IHL_BYTE)
+        mov     byte [edi+0], VERSION_IHL_BYTE
+
+        ; byte 1 = DSCP (6 bits) + ECN (2 bits)
+        mov     eax, [esi+8]
+        and     eax, 0x3F                   ; DSCP is 6 bits wide
+        shl     eax, 2                      ; move it above ECN's 2 bits
+        mov     ebx, [esi+12]
+        and     ebx, 0x03                   ; ECN is 2 bits wide
+        or      eax, ebx
+        mov     [edi+1], al
+
+        ; bytes 2-3 = total length (16 bits, big-endian)
+        mov     eax, [esi+16]
+        mov     ebx, eax
+        and     eax, 0xFF                   ; low byte
+        shl     eax, 8
+        and     ebx, 0xFF00                 ; high byte
+        shr     ebx, 8
+        or      eax, ebx                    ; bytes swapped; the 16-bit store reverses them back
+        mov     [edi+2], ax
+
+        ; bytes 4-5 = identification (16 bits, big-endian)
+        mov     eax, [esi+20]
+        mov     ebx, eax
+        and     eax, 0xFF
+        shl     eax, 8
+        and     ebx, 0xFF00
+        shr     ebx, 8
+        or      eax, ebx
+        mov     [edi+4], ax
+
+        ; bytes 6-7 = flags (3 bits) + fragment offset (13 bits)
+        mov     eax, [esi+24]
+        and     eax, 0x07                   ; flags are 3 bits wide
+        shl     eax, 13                     ; move them above the offset's 13 bits
+        mov     ebx, [esi+28]
+        and     ebx, 0x1FFF                 ; offset is 13 bits wide
+        or      eax, ebx
+        mov     ebx, eax
+        and     eax, 0xFF
+        shl     eax, 8
+        and     ebx, 0xFF00
+        shr     ebx, 8
+        or      eax, ebx
+        mov     [edi+6], ax
+
+        ; byte 8 = TTL (8 bits)
+        mov     eax, [esi+32]
+        mov     [edi+8], al
+
+        ; byte 9 = protocol (8 bits)
+        mov     eax, [esi+36]
+        mov     [edi+9], al
+
+        ; bytes 12-15 = source address (4 octets of 8 bits)
+        mov     al, [esi+44]
+        mov     [edi+12], al
+        mov     al, [esi+45]
+        mov     [edi+13], al
+        mov     al, [esi+46]
+        mov     [edi+14], al
+        mov     al, [esi+47]
+        mov     [edi+15], al
+
+        ; bytes 16-19 = destination address (4 octets of 8 bits)
+        mov     al, [esi+48]
+        mov     [edi+16], al
+        mov     al, [esi+49]
+        mov     [edi+17], al
+        mov     al, [esi+50]
+        mov     [edi+18], al
+        mov     al, [esi+51]
+        mov     [edi+19], al
+
+        ; bytes 10-11 = checksum, computed last
+        mov     byte [edi+10], 0            ; must be zero while computing
+        mov     byte [edi+11], 0
+        push    dword 20                    ; second argument: length
+        push    edi                         ; first argument: header pointer
+        call    _ip_checksum
+        add     esp, 8                      ; remove the two arguments
+        mov     ebx, eax
+        shr     ebx, 8                      ; high byte
+        mov     [edi+10], bl                ; high byte goes first
+        mov     [edi+11], al                ; then the low byte
 
         popa
         mov     eax, 0
