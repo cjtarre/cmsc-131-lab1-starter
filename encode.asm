@@ -51,66 +51,93 @@ _encode_header:
         enter   0,0
         pusha
 
-        mov     edi, [ebp+12]               ; edi = the 20-byte buffer
-        mov     esi, [ebp+8]                ; esi = the struct
+; Load args
+        mov     edi, [ebp+12]           ; edi = the 20-byte buffer
+        mov     esi, [ebp+8]            ; esi = the struct
 
-        ; byte 0 = version + IHL (fixed, see VERSION_IHL_BYTE)
+; BYTE 0 (Version & IHL) version + IHL 
+; fixed, see VERSION_IHL_BYTE
         mov     byte [edi+0], VERSION_IHL_BYTE
 
-        ; byte 1 = DSCP (6 bits) + ECN (2 bits)
-        mov     eax, [esi+8]
-        and     eax, 0x3F                   ; DSCP is 6 bits wide
-        shl     eax, 2                      ; move it above ECN's 2 bits
-        mov     ebx, [esi+12]
-        and     ebx, 0x03                   ; ECN is 2 bits wide
-        or      eax, ebx
-        mov     [edi+1], al
+; BYTE 1 (DSCP & ECN)
+; 6 bits and 2 bits respectively
+        mov     eax, [esi+8]            ; loads DSCP field
+        and     eax, 0x3F               ; mask to keep 6 low bits
+        shl     eax, 2                  ; make room for ECN bits
 
-        ; bytes 2-3 = total length (16 bits, big-endian)
-        mov     eax, [esi+16]
-        mov     ebx, eax
-        and     eax, 0xFF                   ; low byte
-        shl     eax, 8
-        and     ebx, 0xFF00                 ; high byte
-        shr     ebx, 8
-        or      eax, ebx                    ; bytes swapped; the 16-bit store reverses them back
-        mov     [edi+2], ax
+        mov     ebx, [esi+12]           ; loads ECN field
+        and     ebx, 0x03               ; mask to keep 2 low bits
+        or      eax, ebx                ; combines masked ECN into shifted DSCP
+        mov     [edi+1], al             ; write into buffer
 
-        ; bytes 4-5 = identification (16 bits, big-endian)
-        mov     eax, [esi+20]
+; BYTE 2 & 3 (TOTAL LENGTH)
+; 16 bits, write into big endian form
+        mov     eax, [esi+16]           ; loads total length
+        mov     ebx, eax                ; copy it to ebx
+
+        and     eax, 0xFF               ; isolate low byte
+        shl     eax, 8                  ; shift to high byte
+        
+        and     ebx, 0xFF00             ; isolate high byte     (can be skipped actually)
+        shr     ebx, 8                  ; shift to low byte     (shr already pushes out the bits)
+
+        ; byte swap
+        or      eax, ebx                ; the 16-bit store reverses them back
+        mov     [edi+2], ax             ; write into buffer
+
+; BYTE 4 & 5 (IDENTIFICATION)
+; 16 bits, write into big endian form
+; same process as TOTAL LENGTH
+        mov     eax, [esi+20]           
         mov     ebx, eax
+
         and     eax, 0xFF
         shl     eax, 8
+        
         and     ebx, 0xFF00
         shr     ebx, 8
+        
+        ; byte swap
         or      eax, ebx
         mov     [edi+4], ax
 
-        ; bytes 6-7 = flags (3 bits) + fragment offset (13 bits)
-        mov     eax, [esi+24]
-        and     eax, 0x07                   ; flags are 3 bits wide
-        shl     eax, 13                     ; move them above the offset's 13 bits
-        mov     ebx, [esi+28]
-        and     ebx, 0x1FFF                 ; offset is 13 bits wide
-        or      eax, ebx
-        mov     ebx, eax
+; BYTE 6 & 7 (FLAGS & FRAGMENT OFFSET)
+; 3 bits reserved for flags, 13 bits for frag offset
+        mov     eax, [esi+24]           ; loads flags
+        and     eax, 0x07               ; mask to keep lower 3 bits
+        shl     eax, 13                 ; move them for offset's 13 bits
+
+        mov     ebx, [esi+28]           ; loads fragment offset
+        and     ebx, 0x1FFF             ; mask to keep lower 13 bits
+        
+        or      eax, ebx                ; merge into 16-bit
+        mov     ebx, eax                ; make a copy
+
+        ; then byte swap procedure as before
         and     eax, 0xFF
         shl     eax, 8
+
         and     ebx, 0xFF00
         shr     ebx, 8
+        
         or      eax, ebx
-        mov     [edi+6], ax
+        mov     [edi+6], ax             ; write into buffer
 
-        ; byte 8 = TTL (8 bits)
-        mov     eax, [esi+32]
-        mov     [edi+8], al
+; BYTE 8 (TTL)
+; 8 bits
+        mov     eax, [esi+32]           ; loads TTL
+        mov     [edi+8], al             ; write directly into buffer
 
-        ; byte 9 = protocol (8 bits)
-        mov     eax, [esi+36]
-        mov     [edi+9], al
+; BYTE 9 (PROTOCOL)
+; 8 bits
+        mov     eax, [esi+36]           ; loads protocol
+        mov     [edi+9], al             ; write directly into buffer
 
-        ; bytes 12-15 = source address (4 octets of 8 bits)
-        mov     al, [esi+44]
+; BYTES 12 - 15 (SOURCE ADDRESS)
+; 4 octets of 8 bits
+; loads and writes into buffer, one byte at a time
+; assumes it is already in big endian order
+        mov     al, [esi+44]            
         mov     [edi+12], al
         mov     al, [esi+45]
         mov     [edi+13], al
@@ -119,7 +146,9 @@ _encode_header:
         mov     al, [esi+47]
         mov     [edi+15], al
 
-        ; bytes 16-19 = destination address (4 octets of 8 bits)
+; BYTES 16 - 19 (DESTINATION ADDRESS)
+; 4 octets of 8 bits
+; same behavior as SOURCE ADDRESS
         mov     al, [esi+48]
         mov     [edi+16], al
         mov     al, [esi+49]
@@ -129,17 +158,22 @@ _encode_header:
         mov     al, [esi+51]
         mov     [edi+19], al
 
-        ; bytes 10-11 = checksum, computed last
-        mov     byte [edi+10], 0            ; must be zero while computing
-        mov     byte [edi+11], 0
-        push    dword 20                    ; second argument: length
-        push    edi                         ; first argument: header pointer
-        call    _ip_checksum
-        add     esp, 8                      ; remove the two arguments
-        mov     ebx, eax
-        shr     ebx, 8                      ; high byte
-        mov     [edi+10], bl                ; high byte goes first
-        mov     [edi+11], al                ; then the low byte
+; BYTES 10 & 11 (HEADER CHECKSUM)
+; computed last
+        mov     byte [edi+10], 0        ; clear out checksum field
+        mov     byte [edi+11], 0        ; must be zero while computing
+
+        push    dword 20                ; second argument: length
+        push    edi                     ; first argument: header pointer
+
+        call    _ip_checksum            ; computes checksum, returns into eax
+        add     esp, 8                  ; clean stack pointer (discards the two args)
+
+        mov     ebx, eax                ; copy for extraction
+        shr     ebx, 8                  ; high byte
+
+        mov     [edi+10], bl            ; high byte goes first
+        mov     [edi+11], al            ; then the low byte
 
         popa
         mov     eax, 0
