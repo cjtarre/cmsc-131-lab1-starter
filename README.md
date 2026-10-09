@@ -146,8 +146,8 @@ did about it.
 
 ### Known issues
 
-- 
+- **Checksum carry may remain after a single fold:** During checksum computation, folding the 32-bit accumulator only once may still leave a value larger than 16 bits. This occurs when adding the upper 16 bits to the lower 16 bits produces another carry, such as when `0x8FFFF` becomes `0x10007` after the first fold. The group addressed this by implementing the checksum fold as a loop that repeats until the accumulated value fits within 16 bits.
 
 ### Quirks
 
-- 
+- **Checksum return value overwritten by `popa`:** In the `ip_checksum` routine, the computed checksum must be returned in `EAX`. However, `popa` restores the previously saved value of `EAX`, which would overwrite the computed checksum before the routine returns. The group addressed this by temporarily storing the checksum result at `[ebp-4]` before `popa`, then restoring it to `EAX` afterward.
