@@ -15,3 +15,4 @@ sample04 valid
 sample05 valid
 bad01 invalid
 sample06 valid
+sample07 valid
