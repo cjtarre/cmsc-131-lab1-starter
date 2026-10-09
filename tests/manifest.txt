@@ -16,3 +16,4 @@ sample05 valid
 bad01 invalid
 sample06 valid
 sample07 valid
+sample08 valid
