@@ -18,3 +18,4 @@ sample06 valid
 sample07 valid
 sample08 valid
 sample10 valid
+sample11 valid
