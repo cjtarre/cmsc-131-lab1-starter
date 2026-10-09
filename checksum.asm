@@ -13,56 +13,50 @@ _ip_checksum:
         enter   4,0
         pusha
 
-        ; ESI = pointer to header
-        mov     esi, [ebp+8]
+        mov     esi, [ebp+8]            ; ESI = pointer to header        
+        mov     ecx, [ebp+12]           ; ECX = number of bytes to process
 
-        ; ECX = number of bytes to process
-        mov     ecx, [ebp+12]
-
-        ; EDX = 32-bit accumulator
-        xor     edx, edx
+        xor     edx, edx                ; EDX = 32-bit accumulator
+                                        ; clears edx to 0
 
 .loop:
         ; Build a 16-bit big-endian word:
         ; word = (hdr[i] << 8) | hdr[i+1]
 
-        movzx   eax, byte [esi]
-        shl     eax, 8
+        movzx   eax, byte [esi]         ; grabs 1 byte from pointer, zero fill the rest
+        shl     eax, 8                  ; move to upper half of 16-bit
 
-        movzx   ebx, byte [esi+1]
-        or      eax, ebx
+        movzx   ebx, byte [esi+1]       ; grabs adjacent byte
+        or      eax, ebx                ; merge into eax as 16-bit
 
-        ; Add the word to the accumulator
-        add     edx, eax
+        add     edx, eax                ; Add the word to the accumulator
 
         ; Move to the next word
-        add     esi, 2
-        sub     ecx, 2
-        jnz     .loop
+        add     esi, 2                  ; move pointer forward by 2 bytes
+        sub     ecx, 2                  ; decrement counter by 2
+        jnz     .loop                   ; loop if not yet 0
 
 .fold:
         ; Add the high 16 bits to the low 16 bits
-        mov     eax, edx
-        shr     eax, 16
-        and     edx, 0xFFFF
-        add     edx, eax
+        mov     eax, edx                ; copy the accumulator
+        shr     eax, 16                 ; high 16 bits
+        and     edx, 0xFFFF             ; mask to keep low 16 bits
+        add     edx, eax                ; add high and low bits
 
         ; A second fold may be necessary
-        cmp     edx, 0xFFFF
-        ja      .fold
+        cmp     edx, 0xFFFF             ; check if there's still overflow
+        ja      .fold                   ; if edx is not zero
 
         ; One's complement of the 16-bit result
-        mov     eax, edx
-        not     ax
-        movzx   eax, ax
+        mov     eax, edx                ; clean fold sum
+        not     ax                      ; invert
+        movzx   eax, ax                 ; erase upper half of inversion
 
-        ; Save result because popa restores EAX
-        mov     [ebp-4], eax
+        mov     [ebp-4], eax            ; Save result because popa restores EAX
 
         popa
-
-        ; Restore checksum as return value
-        mov     eax, [ebp-4]
+       
+        mov     eax, [ebp-4]            ; Restore checksum as return value
 
         leave
         ret

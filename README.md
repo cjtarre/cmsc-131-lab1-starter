@@ -121,8 +121,8 @@ who owns it.
 | Week | Goal | Owner |
 |---|---|---|
 | 1 | Repository setup, complete design notes, assign subsystem ownership, and implement the Version/IHL prototype | All Members |
-| 2 | Complete the decode path, checksum routine, and encoder; integrate the core features |  |
-| 3 | Complete testing, resolve quirks and issues, and finalize the implementation |  |
+| 2 | Complete the decode path, checksum routine, and encoder; integrate the core features | All Members |
+| 3 | Complete testing, resolve quirks and issues, and finalize the implementation | All Members |
 | 4 | Defense | All Members |
 
 ## Subsystem Ownership
