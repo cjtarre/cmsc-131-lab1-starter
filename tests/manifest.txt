@@ -26,3 +26,4 @@ sample16 valid
 sample17 valid
 sample18 valid
 bad02 invalid
+bad03 invalid
