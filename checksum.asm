@@ -7,6 +7,12 @@
   section .note.GNU-stack noalloc noexec nowrite progbits
 %endif
 
+; Checksum constants
+BYTE_SHIFT  equ 8
+WORD_SHIFT  equ 16
+WORD_BYTES  equ 2
+WORD_MASK   equ 0xFFFF
+
 segment .text
         global  _ip_checksum
 _ip_checksum:
@@ -24,7 +30,7 @@ _ip_checksum:
         ; word = (hdr[i] << 8) | hdr[i+1]
 
         movzx   eax, byte [esi]         ; grabs 1 byte from pointer, zero fill the rest
-        shl     eax, 8                  ; move to upper half of 16-bit
+        shl     eax, BYTE_SHIFT         ; move to upper half of 16-bit
 
         movzx   ebx, byte [esi+1]       ; grabs adjacent byte
         or      eax, ebx                ; merge into eax as 16-bit
@@ -32,20 +38,20 @@ _ip_checksum:
         add     edx, eax                ; Add the word to the accumulator
 
         ; Move to the next word
-        add     esi, 2                  ; move pointer forward by 2 bytes
-        sub     ecx, 2                  ; decrement counter by 2
+        add     esi, WORD_BYTES         ; move pointer forward by 2 bytes
+        sub     ecx, WORD_BYTES         ; decrement counter by 2
         jnz     .loop                   ; loop if not yet 0
 
 .fold:
         ; Add the high 16 bits to the low 16 bits
         mov     eax, edx                ; copy the accumulator
-        shr     eax, 16                 ; high 16 bits
-        and     edx, 0xFFFF             ; mask to keep low 16 bits
+        shr     eax, WORD_SHIFT         ; high 16 bits
+        and     edx, WORD_MASK          ; mask to keep low 16 bits
         add     edx, eax                ; add high and low bits
 
         ; A second fold may be necessary
-        cmp     edx, 0xFFFF             ; check if there's still overflow
-        ja      .fold                   ; if edx is not zero
+        cmp     edx, WORD_MASK          ; check if there's still overflow
+        ja      .fold                   ; repeat if result still exceeds 16 bits
 
         ; One's complement of the 16-bit result
         mov     eax, edx                ; clean fold sum
