@@ -31,9 +31,19 @@
 ; the names below to match. asm_io.inc does the same for _asm_main in the
 ; bootcamp blocks. Leave this block alone.
 %ifdef ELF_TYPE
-  %define _decode_header decode_header
-  section .note.GNU-stack noalloc noexec nowrite progbits
+%define _decode_header decode_header
+section .note.GNU-stack noalloc noexec nowrite progbits
 %endif
+
+; constants defined
+VERSION_SHIFT equ 4  
+DSCP_SHIFT equ 2
+FLAG_SHIFT equ 13
+
+IHL_MASK equ 0x0F
+ECN_MASK equ 0x03
+FRAG_MASK equ 0x1FFF
+
 
 segment .text
         global  _decode_header
@@ -51,14 +61,14 @@ _decode_header:
 
         ; get version
         movzx   eax, al         ; copy al to eax then zero extend
-        shr     eax, 4          ; shift right to remove the IHL and get only the version
+        shr     eax, VERSION_SHIFT ; shift right to remove the IHL and get only the version
         mov     [edi+0], eax    ; store to output
 
         mov     al, [esi]       ; al = byte 0
 
         ; get IHL
         movzx   eax, al         ; copy al to eax then zero extend
-        and     eax, 0x0F       ; mask and get only the 4 lower bits
+        and     eax, IHL_MASK       ; 0x0F mask and get only the 4 lower bits
         mov     [edi+4], eax    ; store to output
 
 ; BYTE 1 (DSCP & ECN)
@@ -67,13 +77,13 @@ _decode_header:
 
         ; get DSCP 
         movzx   eax, al         ; copy al to eax then zero extend
-        shr     eax, 2          ; shift right by 2 to remove ecn and get only dscp
+        shr     eax, DSCP_SHIFT    ; shift right by 2 to remove ecn and get only dscp
         mov     [edi+8], eax    ; store to output
 
-        ; get ECN
+        ; get ECN why 0x03 for ecn
         mov     al, [esi+1]
         movzx   eax, al         ; copy al to eax then zero extend
-        and     eax, 0x03       ; mask and get only the 2 lower bits
+        and     eax, ECN_MASK       ; 0x03 mask and get only the 2 lower bits
         mov     [edi+12], eax   ; store to output
 
 ; BYTE 2 & 3 (TOTAL LENGTH)
@@ -96,14 +106,14 @@ _decode_header:
         mov     al, [esi+7]     ; al=byte 7
 
         ; get flags
-        shr     eax, 13         ; shift right by 13 to keep top 3 bits as flags
+        shr     eax, FLAG_SHIFT  ; shift right by 13 to keep top 3 bits as flags
         mov     [edi+24], eax   ; store to output
 
         ; get fragment offset
         xor     eax, eax        ; remove garbage in eax
         mov     ah, [esi+6]     ; ah=byte6
         mov     al, [esi+7]     ; al= byte7
-        and     eax, 0x1FFF     ; mask top 3 bits to get only lower 13 bits
+        and     eax, FRAG_MASK     ; mask top 3 bits to get only lower 13 bits
         mov     [edi+28], eax   ; store to output
 
 ; BYTE 8 (TTL)
@@ -141,16 +151,16 @@ _decode_header:
 ; direct extract octet then store to output since single byte arrays
 
         mov     al, [esi+16]    ; octet0
-        mov     [edi+48], al    ; store to dist[0]
+        mov     [edi+48], al    ; store to dst[0]
 
         mov     al, [esi+17]    ; octet1
-        mov     [edi+49], al    ; store to dist[1]
+        mov     [edi+49], al    ; store to dst[1]
 
         mov     al, [esi+18]    ; octet2
-        mov     [edi+ 50], al   ; store to dist[2]
+        mov     [edi+ 50], al   ; store to dst[2]
 
         mov     al, [esi+19]    ; octet3  
-        mov     [edi+51], al    ; store to dist[3]
+        mov     [edi+51], al    ; store to dst[3]
 
         popa
         mov     eax, 0
