@@ -147,6 +147,8 @@ did about it.
 ### Known issues
 - **Checksum carry may remain after a single fold:** During checksum computation, folding the 32-bit accumulator only once may still leave a value larger than 16 bits. This occurs when adding the upper 16 bits to the lower 16 bits produces another carry, such as when `0x8FFFF` becomes `0x10007` after the first fold. The group addressed this by implementing the checksum fold as a loop that repeats until the accumulated value fits within 16 bits.
 
+- **Oversized values spill into neighboring bits:** DSCP/ECN, version/IHL, and flags/fragment offset share bytes, so a value wider than its field would overwrite the bits beside it. The encoder masks each field to its width before shifting and combining.
+
 - **Magic numbers**: In encoder and decoder. Initially, the implementation used raw numbers for the masks and shifts which essentially made the code harder to read. We solved this by replacing them with named constants.
 
 ### Quirks
@@ -156,4 +158,6 @@ did about it.
 
 - **Different conventions for network and processor**: Particularly about endianness. The IPv4 header uses big-endian while x86 uses little-endian. Having these different conventions demanded different approaches. For decode, we built each 16-bit field byte by byte, loading the high byte into `ah` and the low byte into `al`, then used shifting and masking to split fields that share bytes. For encode, we did the reverse: we masked and shifted each field into position, then swapped the two bytes with shifts and masks so the high byte is written first.
 
+- **Network order vs. x86 order:** Network headers put the high byte first, but x86 is little-endian, so a plain 16-bit store would write the bytes backwards. The encoder stores `ah` first and `al` second, which writes them in network order without any swap code.
 
+- **`popa` overwrites the return value:** `popa` restores `eax`, so anything left there is lost. The encoder sets `eax` to 0 after `popa`.
