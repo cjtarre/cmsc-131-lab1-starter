@@ -1,48 +1,67 @@
 ;
 ; encode.asm - build a 20-byte IPv4 header from the field struct.
 ;
-; This is your starting point. It assembles and links as-is, so the build
-; works before you write any code. Right now it writes nothing, so the
-; twenty bytes driver.c saves are whatever the buffer held. Your job is to
-; replace that with the construction described below.
+; Reads the fields from the ipv4_fields struct (driver.c) and writes them
+; into a 20-byte buffer in network byte order, then computes and inserts
+; the header checksum.
 ;
-; The contract, from driver.c:
-;
-;       unsigned char *hdr        [ebp+12]
+; Contract (cdecl, from driver.c):
 ;       struct ipv4_fields *in    [ebp+8]
+;       unsigned char *hdr        [ebp+12]
 ;
-; driver.c documents the struct layout:
-;
-;   +0 version   +4 ihl    +8 dscp   +12 ecn   +16 total_length
-;   +20 identification    +24 flags  +28 fragment_offset
-;   +32 ttl      +36 protocol       +40 checksum
-;   +44 src[0..3]                   +48 dst[0..3]
-;
-; You write twenty bytes into hdr. Every multi-byte field goes out
-; big-endian: the high byte first. The fragment offset's top five bits share
-; byte 6 with the three flag bits. Its bottom eight bits are byte 7.
-;
-; The checksum is your job too. Bytes 10-11 must read as zero while the
-; checksum is computed. Write them as zero, call ip_checksum over the
-; finished header, and store its result into the field. The struct's
-; checksum member is read on the decode path only. Don't copy it here.
-;
-; Do not clobber ebx, esi, edi, or ebp. C assumes they survive your call.
-; Return in eax (driver.c ignores it here, so returning 0 is fine).
+; Register plan (note: the opposite of decode.asm):
+;   esi = pointer to the input struct
+;   edi = pointer to the 20-byte output buffer
+;   eax, ebx = scratch for building each value
 ;
 
-; Windows C puts a leading underscore on every exported name. Linux C does
-; not. The Makefile passes -d ELF_TYPE on Linux. This block then respells
-; the names below to match. asm_io.inc does the same for _asm_main in the
-; bootcamp blocks. Leave this block alone.
 %ifdef ELF_TYPE
   %define _ip_checksum ip_checksum
   %define _encode_header encode_header
   section .note.GNU-stack noalloc noexec nowrite progbits
 %endif
 
-; Byte 0 is always 0x45: version 4 in the top 4 bits, IHL 5 in the bottom 4 bits.
-VERSION_IHL_BYTE equ 0x45
+; ---- Byte positions inside the 20-byte header ----
+HDR_VER_IHL     equ 0       ; version + IHL share byte 0
+HDR_DSCP_ECN    equ 1       ; DSCP + ECN share byte 1
+HDR_TOTAL_LEN   equ 2       ; bytes 2-3
+HDR_ID          equ 4       ; bytes 4-5
+HDR_FLAGS_FRAG  equ 6       ; bytes 6-7: flags + fragment offset share a word
+HDR_TTL         equ 8
+HDR_PROTOCOL    equ 9
+HDR_CHECKSUM    equ 10      ; bytes 10-11
+HDR_SRC         equ 12      ; bytes 12-15
+HDR_DST         equ 16      ; bytes 16-19
+HDR_LEN         equ 20      ; the base header is always 20 bytes
+
+; ---- Offsets inside struct ipv4_fields (from driver.c) ----
+; The eleven int members are 4 bytes each, so they sit at multiples of 4.
+; The src and dst arrays are single bytes and start right after, at +44.
+F_VERSION       equ 0
+F_IHL           equ 4
+F_DSCP          equ 8
+F_ECN           equ 12
+F_TOTAL_LEN     equ 16
+F_ID            equ 20
+F_FLAGS         equ 24
+F_FRAG_OFFSET   equ 28
+F_TTL           equ 32
+F_PROTOCOL      equ 36
+F_SRC           equ 44
+F_DST           equ 48
+; the checksum member is never read: the encoder computes its own checksum.
+
+; ---- Constants, with the reason for each ----
+VERSION_MASK    equ 0x0F    ; 4 one-bits: version is 4 bits wide
+VERSION_SHIFT   equ 4       ; moves version above the 4 IHL bits
+IHL_MASK        equ 0x0F    ; 4 one-bits: IHL is 4 bits wide
+DSCP_MASK       equ 0x3F    ; 6 one-bits: DSCP is 6 bits wide
+DSCP_SHIFT      equ 2       ; moves DSCP above the 2 ECN bits
+ECN_MASK        equ 0x03    ; 2 one-bits: ECN is 2 bits wide
+FLAGS_MASK      equ 0x07    ; 3 one-bits: flags are 3 bits wide
+FLAGS_SHIFT     equ 13      ; moves flags above the 13-bit fragment offset
+FRAG_MASK       equ 0x1FFF  ; 13 one-bits: the offset is 13 bits wide
+
 extern _ip_checksum
 
 segment .text
@@ -51,131 +70,93 @@ _encode_header:
         enter   0,0
         pusha
 
-; Load args
-        mov     edi, [ebp+12]           ; edi = the 20-byte buffer
-        mov     esi, [ebp+8]            ; esi = the struct
+        ; load arguments
+        mov     edi, [ebp+12]                       ; edi = the 20-byte buffer
+        mov     esi, [ebp+8]                        ; esi = the struct
 
-; BYTE 0 (Version & IHL) version + IHL 
-; fixed, see VERSION_IHL_BYTE
-        mov     byte [edi+0], VERSION_IHL_BYTE
+; VERSION & IHL : BYTE 0
+        ; version on top, IHL on the bottom
+        mov     eax, [esi + F_VERSION]
+        and     eax, VERSION_MASK                   ; keep only 4 bits
+        shl     eax, VERSION_SHIFT                  ; make room for IHL below
+        mov     ebx, [esi + F_IHL]
+        and     ebx, IHL_MASK                       ; keep only 4 bits
+        or      eax, ebx                            ; version on top, IHL on bottom
+        mov     [edi + HDR_VER_IHL], al
 
-; BYTE 1 (DSCP & ECN)
-; 6 bits and 2 bits respectively
-        mov     eax, [esi+8]            ; loads DSCP field
-        and     eax, 0x3F               ; mask to keep 6 low bits
-        shl     eax, 2                  ; make room for ECN bits
+; DSCP & ECN : BYTE 1
+        mov     eax, [esi + F_DSCP]
+        and     eax, DSCP_MASK                      ; keep only 6 bits
+        shl     eax, DSCP_SHIFT                     ; make room for ECN below
+        mov     ebx, [esi + F_ECN]
+        and     ebx, ECN_MASK                       ; keep only 2 bits
+        or      eax, ebx                            ; DSCP on top, ECN on bottom
+        mov     [edi + HDR_DSCP_ECN], al
 
-        mov     ebx, [esi+12]           ; loads ECN field
-        and     ebx, 0x03               ; mask to keep 2 low bits
-        or      eax, ebx                ; combines masked ECN into shifted DSCP
-        mov     [edi+1], al             ; write into buffer
+; TOTAL LENGTH : BYTES 2-3
+        ; the network wants the high byte first, so ah is stored first
+        mov     eax, [esi + F_TOTAL_LEN]
+        mov     [edi + HDR_TOTAL_LEN], ah           ; high byte
+        mov     [edi + HDR_TOTAL_LEN + 1], al       ; low byte
 
-; BYTE 2 & 3 (TOTAL LENGTH)
-; 16 bits, write into big endian form
-        mov     eax, [esi+16]           ; loads total length
-        mov     ebx, eax                ; copy it to ebx
+; IDENTIFICATION : BYTES 4-5
+        mov     eax, [esi + F_ID]
+        mov     [edi + HDR_ID], ah                  ; high byte
+        mov     [edi + HDR_ID + 1], al              ; low byte
 
-        and     eax, 0xFF               ; isolate low byte
-        shl     eax, 8                  ; shift to high byte
-        
-        and     ebx, 0xFF00             ; isolate high byte     (can be skipped actually)
-        shr     ebx, 8                  ; shift to low byte     (shr already pushes out the bits)
+; FLAGS & FRAGMENT OFFSET : BYTES 6-7
+        ; build one 16-bit word first: flags on top, offset below
+        mov     eax, [esi + F_FLAGS]
+        and     eax, FLAGS_MASK                     ; keep only 3 bits
+        shl     eax, FLAGS_SHIFT                    ; put them above the 13 offset bits
+        mov     ebx, [esi + F_FRAG_OFFSET]
+        and     ebx, FRAG_MASK                      ; keep only 13 bits
+        or      eax, ebx                            ; the combined word
+        mov     [edi + HDR_FLAGS_FRAG], ah          ; high byte
+        mov     [edi + HDR_FLAGS_FRAG + 1], al      ; low byte
 
-        ; byte swap
-        or      eax, ebx                ; the 16-bit store reverses them back
-        mov     [edi+2], ax             ; write into buffer
+; TTL : BYTE 8
+        mov     eax, [esi + F_TTL]
+        mov     [edi + HDR_TTL], al                 ; TTL is 8 bits, so al holds all of it
 
-; BYTE 4 & 5 (IDENTIFICATION)
-; 16 bits, write into big endian form
-; same process as TOTAL LENGTH
-        mov     eax, [esi+20]           
-        mov     ebx, eax
+; PROTOCOL : BYTE 9
+        mov     eax, [esi + F_PROTOCOL]
+        mov     [edi + HDR_PROTOCOL], al
 
-        and     eax, 0xFF
-        shl     eax, 8
-        
-        and     ebx, 0xFF00
-        shr     ebx, 8
-        
-        ; byte swap
-        or      eax, ebx
-        mov     [edi+4], ax
+; SOURCE ADDRESS : BYTES 12-15
+        ; octets are single bytes, so they copy straight across
+        mov     al, [esi + F_SRC]
+        mov     [edi + HDR_SRC], al
+        mov     al, [esi + F_SRC + 1]
+        mov     [edi + HDR_SRC + 1], al
+        mov     al, [esi + F_SRC + 2]
+        mov     [edi + HDR_SRC + 2], al
+        mov     al, [esi + F_SRC + 3]
+        mov     [edi + HDR_SRC + 3], al
 
-; BYTE 6 & 7 (FLAGS & FRAGMENT OFFSET)
-; 3 bits reserved for flags, 13 bits for frag offset
-        mov     eax, [esi+24]           ; loads flags
-        and     eax, 0x07               ; mask to keep lower 3 bits
-        shl     eax, 13                 ; move them for offset's 13 bits
+; DESTINATION ADDRESS : BYTES 16-19
+        mov     al, [esi + F_DST]
+        mov     [edi + HDR_DST], al
+        mov     al, [esi + F_DST + 1]
+        mov     [edi + HDR_DST + 1], al
+        mov     al, [esi + F_DST + 2]
+        mov     [edi + HDR_DST + 2], al
+        mov     al, [esi + F_DST + 3]
+        mov     [edi + HDR_DST + 3], al
 
-        mov     ebx, [esi+28]           ; loads fragment offset
-        and     ebx, 0x1FFF             ; mask to keep lower 13 bits
-        
-        or      eax, ebx                ; merge into 16-bit
-        mov     ebx, eax                ; make a copy
-
-        ; then byte swap procedure as before
-        and     eax, 0xFF
-        shl     eax, 8
-
-        and     ebx, 0xFF00
-        shr     ebx, 8
-        
-        or      eax, ebx
-        mov     [edi+6], ax             ; write into buffer
-
-; BYTE 8 (TTL)
-; 8 bits
-        mov     eax, [esi+32]           ; loads TTL
-        mov     [edi+8], al             ; write directly into buffer
-
-; BYTE 9 (PROTOCOL)
-; 8 bits
-        mov     eax, [esi+36]           ; loads protocol
-        mov     [edi+9], al             ; write directly into buffer
-
-; BYTES 12 - 15 (SOURCE ADDRESS)
-; 4 octets of 8 bits
-; loads and writes into buffer, one byte at a time
-; assumes it is already in big endian order
-        mov     al, [esi+44]            
-        mov     [edi+12], al
-        mov     al, [esi+45]
-        mov     [edi+13], al
-        mov     al, [esi+46]
-        mov     [edi+14], al
-        mov     al, [esi+47]
-        mov     [edi+15], al
-
-; BYTES 16 - 19 (DESTINATION ADDRESS)
-; 4 octets of 8 bits
-; same behavior as SOURCE ADDRESS
-        mov     al, [esi+48]
-        mov     [edi+16], al
-        mov     al, [esi+49]
-        mov     [edi+17], al
-        mov     al, [esi+50]
-        mov     [edi+18], al
-        mov     al, [esi+51]
-        mov     [edi+19], al
-
-; BYTES 10 & 11 (HEADER CHECKSUM)
-; computed last
-        mov     byte [edi+10], 0        ; clear out checksum field
-        mov     byte [edi+11], 0        ; must be zero while computing
-
-        push    dword 20                ; second argument: length
-        push    edi                     ; first argument: header pointer
-
-        call    _ip_checksum            ; computes checksum, returns into eax
-        add     esp, 8                  ; clean stack pointer (discards the two args)
-
-        mov     ebx, eax                ; copy for extraction
-        shr     ebx, 8                  ; high byte
-
-        mov     [edi+10], bl            ; high byte goes first
-        mov     [edi+11], al            ; then the low byte
+; HEADER CHECKSUM : BYTES 10-11 (computed last)
+        ; the checksum field must read as zero while it is being computed
+        mov     byte [edi + HDR_CHECKSUM], 0
+        mov     byte [edi + HDR_CHECKSUM + 1], 0
+        push    dword HDR_LEN                       ; second argument: length
+        push    edi                                 ; first argument: header pointer
+        call    _ip_checksum
+        add     esp, 8                              ; cdecl: the caller removes its arguments
+        ; the result comes back in ax: ah is the high byte, al is the low byte
+        mov     [edi + HDR_CHECKSUM], ah            ; high byte goes first
+        mov     [edi + HDR_CHECKSUM + 1], al        ; then the low byte
 
         popa
-        mov     eax, 0
+        mov     eax, 0                              ; set after popa so it isn't overwritten
         leave
         ret
